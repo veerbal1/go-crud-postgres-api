@@ -138,7 +138,7 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 
-	// if err := server.Shutdown(shutdownCtx); err != nil {
-	// 	fmt.Println("shutdown error:", err)
-	// }
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		fmt.Println("shutdown error:", err)
+	}
 }
