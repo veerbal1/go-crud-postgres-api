@@ -1,143 +1,162 @@
-# Stage 03 - CRUD Postgres API
+# Go CRUD Postgres API
 
-## Goal
+A Go HTTP API with PostgreSQL, using `database/sql` and `lib/pq`. No ORM, no framework — just the standard library.
 
-Build a Go HTTP API where projects and tasks are stored in PostgreSQL instead of memory.
+## Quickstart
 
-The main shift from Stage 02 is durability: if the server restarts, the data should still exist.
+```bash
+# 1. Start Postgres
+docker compose up -d
 
-## Why This Matters For Go Backend/Platform Jobs
+# 2. Run migrations
+migrate -path migrations \
+  -database "postgres://task_user:task_password@localhost:5433/task_api?sslmode=disable" \
+  up
 
-Most real backend services do not keep important data only in memory. They store data in a database, validate input, use migrations, pass request context into database calls, and expose predictable APIs.
+# 3. Start the server
+go run .
 
-This stage proves you can move from a toy HTTP server to a real data-backed backend.
+# 4. Test an endpoint
+curl -X POST http://localhost:8080/api/v1/projects \
+  -H "Content-Type: application/json" \
+  -d '{"name":"My Project","description":"optional"}'
+```
 
-## Concepts Practiced
+Environment variable `DATABASE_URL` overrides the default connection string.
 
-- PostgreSQL tables, rows, columns, and constraints
-- Primary keys and foreign keys
-- SQL CRUD: create, read, update, delete
-- Migrations from an empty database
-- Go database connections and startup config
-- Context-aware database calls
-- Repository, service, and handler boundaries
-- Pagination, filtering, and sorting
-- Transactions for multi-step writes
-- Integration tests against a real database
-- Docker Compose for local PostgreSQL
-- API versioning with `/api/v1`
-- OpenAPI-style endpoint documentation
-- Basic query/index/performance notes
+## Schema
 
-## Build Slices
+```
+projects
+├── id         UUID PRIMARY KEY DEFAULT gen_random_uuid()
+├── name       TEXT NOT NULL CHECK (length(trim(name)) > 0)
+├── description TEXT
+├── created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+└── updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 
-1. Design the `projects` and `tasks` schema.
-2. Add migrations that create the schema from scratch.
-3. Add database config and a connection check.
-4. Implement `POST /api/v1/projects`.
-5. Implement `GET /api/v1/projects`.
-6. Implement `GET /api/v1/projects/{id}`.
-7. Implement `PATCH /api/v1/projects/{id}`.
-8. Implement `DELETE /api/v1/projects/{id}`.
-9. Implement task CRUD under projects.
-10. Add pagination for list endpoints.
-11. Add filtering and sorting where useful.
-12. Add one transaction for a multi-step write.
-13. Add integration tests against a test database.
-14. Add Docker Compose for local Postgres.
-15. Add config validation for required environment variables.
-16. Document endpoints, schema, versioning, and tradeoffs.
+tasks
+├── id         UUID PRIMARY KEY DEFAULT gen_random_uuid()
+├── title      TEXT NOT NULL CHECK (length(trim(title)) > 0)
+├── done       BOOLEAN NOT NULL DEFAULT false
+├── project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE
+├── created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+└── updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 
-## Tests
+Index: idx_tasks_project_id ON tasks(project_id)
+```
 
-- Migration-from-empty database check
-- Config missing or invalid check
-- Project create/list/get/update/delete integration tests
-- Task create/list/get/update/delete integration tests
-- Validation tests for empty titles and invalid IDs
-- Pagination behavior test
-- Transaction behavior test where consistency matters
+## API Endpoints
 
-## Done Checklist
+### Projects
 
-- [ ] Migrations create the database schema from scratch
-- [ ] CRUD endpoints use PostgreSQL, not in-memory storage
-- [ ] DB calls receive context from the request path
-- [ ] Required config is validated at startup
-- [ ] Docker Compose starts PostgreSQL locally
-- [ ] Integration tests pass against a test database
-- [ ] Pagination is implemented for list endpoints
-- [ ] Filtering or sorting is implemented where useful
-- [ ] At least one transaction is used and explained
-- [ ] README documents schema and endpoint examples
-- [ ] API versioning decision is documented
-- [ ] Basic query/index/performance note exists
-- [ ] You can explain repository, service, and handler boundaries
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/projects` | Create a project |
+| `GET` | `/api/v1/projects?page=1&page_size=20` | List projects (paginated) |
+| `GET` | `/api/v1/projects/{id}` | Get a project by ID |
+| `PATCH` | `/api/v1/projects/{id}` | Partially update a project |
+| `DELETE` | `/api/v1/projects/{id}` | Delete a project (cascades to tasks) |
+| `POST` | `/api/v1/projects/{id}/complete` | Mark project and all tasks done (transaction) |
 
-## What I Learned
+### Tasks
 
-Write this section after the project works. Keep it honest and specific.
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/projects/{project_id}/tasks` | Create a task |
+| `GET` | `/api/v1/projects/{project_id}/tasks?done=true&sort=title&order=asc&page=1&page_size=20` | List tasks (paginated, filterable, sortable) |
+| `GET` | `/api/v1/tasks/{id}` | Get a task by ID |
+| `PATCH` | `/api/v1/tasks/{id}` | Partially update a task |
+| `DELETE` | `/api/v1/tasks/{id}` | Delete a task |
 
-Suggested prompts:
+### Examples
 
-- What changed when data moved from memory to Postgres?
-- What did migrations make easier?
-- What was confusing about database errors or scanning rows?
-- Where did context matter?
-- Which query or endpoint would need performance attention first?
+```bash
+# Create a project
+curl -X POST http://localhost:8080/api/v1/projects \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Learn Go","description":"Backend journey"}'
 
-## Public Post Ideas
+# Create tasks under that project
+PROJECT_ID="<uuid-from-above>"
+curl -X POST "http://localhost:8080/api/v1/projects/$PROJECT_ID/tasks" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Setup database"}'
 
-- Built a Go/Postgres CRUD API with migrations and Docker Compose.
-- Learned why in-memory APIs are useful for practice but not enough for real backend services.
-- Added integration tests against a real database instead of only handler tests.
-- Practiced API versioning with `/api/v1` and documented endpoint behavior.
+curl -X POST "http://localhost:8080/api/v1/projects/$PROJECT_ID/tasks" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Write handlers"}'
 
-## Schema Draft
+# Update a project. Omit description to keep it; send null to clear it.
+curl -X PATCH "http://localhost:8080/api/v1/projects/$PROJECT_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Learn Go deeply","description":null}'
 
-### projects
+# List tasks (filter undone, sorted by title ascending)
+curl "http://localhost:8080/api/v1/projects/$PROJECT_ID/tasks?done=false&sort=title&order=asc"
 
-- `id`: unique identifier, assigned by the database on insert (UUID).
-- `name`: required, non-empty string. The project's title.
-- `description`: optional string. Extra context about the project.
-- `created_at`: timestamp set by the database when the row is first inserted.
-- `updated_at`: timestamp set by the database when the row is inserted and updated on every change.
+# Mark a task done
+TASK_ID="<uuid-from-above>"
+curl -X PATCH "http://localhost:8080/api/v1/tasks/$TASK_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"done":true}'
 
-### tasks
+# Complete all tasks in a project (transaction)
+curl -X POST "http://localhost:8080/api/v1/projects/$PROJECT_ID/complete"
+```
 
-- `id`: unique identifier, assigned by the database on insert (UUID).
-- `project_id`: required, points to `projects.id`. A task always lives inside a project.
-- `title`: required, non-empty string. What the task is.
-- `done`: boolean, defaults to `false`. Whether the task is completed.
-- `created_at`: timestamp set by the database when the row is first inserted.
-- `updated_at`: timestamp set by the database when the row is inserted and updated on every change.
+### Response shapes
 
-### Relationship
+**201 Created / 200 OK:**
+```json
+{
+  "id": "uuid",
+  "name": "Learn Go",
+  "description": "Backend journey",
+  "created_at": "2026-06-13T10:00:00Z",
+  "updated_at": "2026-06-13T10:00:00Z"
+}
+```
 
-- One project has many tasks. Each task belongs to exactly one project.
-- `tasks.project_id` is a foreign key referencing `projects.id`.
-- If a project is deleted, all its tasks are deleted too (ON DELETE CASCADE).
+**Paginated list:**
+```json
+{
+  "data": [...],
+  "page": 1,
+  "page_size": 20,
+  "total_count": 42,
+  "total_pages": 3
+}
+```
 
-### Constraints and defaults
+**Error:**
+```json
+{"error": "name is required"}
+```
 
-- `projects.name` and `tasks.title` cannot be empty.
-- `tasks.done` defaults to `false`.
-- All timestamps are managed by the database (not the application).
+## Running Tests
 
-### Migration decisions
+```bash
+TEST_DATABASE_URL="postgres://task_user:task_password@localhost:5433/task_api?sslmode=disable" \
+go test -v ./...
+```
 
-- **Empty names/titles**: `NOT NULL` at the database level, plus a `CHECK` constraint that rejects empty strings and whitespace-only values (e.g. `length(trim(name)) > 0`). The application layer will also validate this before inserts and updates.
-- **updated_at strategy**: `created_at` gets a database default (`DEFAULT now()`). `updated_at` is set by application code on every update — no trigger needed, keeping the migration simpler.
-- **UUID generation**: `id` columns use `gen_random_uuid()` as their default. This requires the `pgcrypto` extension, which the migration enables with `CREATE EXTENSION IF NOT EXISTS pgcrypto`.
-- **Indexes**: an index on `tasks.project_id` since "list all tasks for a project" will be one of the most common queries. The foreign key itself does not create an index automatically.
+Tests use `TEST_DATABASE_URL`. If it is not set, they fall back to the local Docker Compose database at `localhost:5433/task_api`.
 
-## First Tiny Task
+These are integration tests: they create rows in the configured database and clean up the test data they own. For a cleaner long-term setup, point `TEST_DATABASE_URL` at a dedicated test database instead of a development database with real local data.
 
-Design the database shape before writing Go code.
+## Stack
 
-Start with two tables:
+- **Go 1.22** — standard library HTTP server with method-based routing (`http.HandleFunc("POST /path/{param}", handler)`), path parameters via `r.PathValue()`
+- **Postgres 16** — Docker Compose with healthcheck
+- **lib/pq** — Postgres driver for `database/sql`
+- **golang-migrate** — up/down migration files
 
-- `projects`
-- `tasks`
+## Tradeoffs
 
-Decide the fields each table needs, which fields are required, and how a task belongs to a project.
+| Decision | Why |
+|----------|-----|
+| No ORM (GORM, etc.) | Learning raw SQL and `database/sql` first builds deeper understanding |
+| No router library (chi, gorilla/mux) | Go 1.22+ standard ServeMux handles method routing and path params |
+| Single `main` package | Keeps project small while learning — split into packages later when complexity demands it |
+| `ON DELETE CASCADE` on tasks.project_id | Deleting a project automatically removes its tasks |
+| Timestamps `NOT NULL` with `DEFAULT now()` | Ensures every row has audit timestamps; zero-value dates are never allowed |
